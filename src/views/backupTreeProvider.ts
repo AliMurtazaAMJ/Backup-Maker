@@ -81,8 +81,7 @@ export class BackupTreeProvider implements vscode.TreeDataProvider<BackupTreeIte
   }
 
   private async getFileTreeItems(backup: BackupMetadata): Promise<BackupTreeItem[]> {
-    const { getFilesRecursive } = await import('../utils/fileUtils');
-    const files = await getFilesRecursive(backup.path);
+    const files = await this.metadataService.getFileList(backup.id);
 
     const rootItems = this.buildTree(backup, files);
     return rootItems;
@@ -92,8 +91,7 @@ export class BackupTreeProvider implements vscode.TreeDataProvider<BackupTreeIte
     const backup = this.metadataService.getById(backupId);
     if (!backup) return [];
 
-    const { getFilesRecursive } = await import('../utils/fileUtils');
-    const allFiles = await getFilesRecursive(backup.path);
+    const allFiles = await this.metadataService.getFileList(backupId);
 
     const prefix = relativePath ? relativePath + '/' : '';
     const dirFiles = allFiles.filter((f) => f.startsWith(prefix));

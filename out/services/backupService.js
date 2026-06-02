@@ -63,6 +63,7 @@ class BackupService {
         const backupDir = this.storageService.getBackupDir(projectName, version);
         await (0, fileUtils_1.ensureDir)(backupDir);
         const id = crypto.randomUUID();
+        const globIgnore = this.ignoreService.getGlobPatterns();
         const rawFiles = await (0, fast_glob_1.default)('**/*', {
             cwd: workspaceRoot,
             dot: false,
@@ -70,6 +71,7 @@ class BackupService {
             markDirectories: false,
             suppressErrors: true,
             followSymbolicLinks: false,
+            ignore: globIgnore,
         });
         const filteredFiles = this.ignoreService.filterFiles(rawFiles);
         let fileCount = 0;

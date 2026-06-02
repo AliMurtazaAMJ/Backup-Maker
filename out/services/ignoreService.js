@@ -41,7 +41,7 @@ const path = __importStar(require("path"));
 const fs = __importStar(require("fs/promises"));
 const ignore_1 = __importDefault(require("ignore"));
 const CONFIG_FILENAME = 'backup-manager.json';
-const DEFAULT_IGNORE = ['node_modules/**', 'dist/**', '.git/**', '*.log', '*.tmp', '.env', '.vscode/**', 'backup-manager.json'];
+const DEFAULT_IGNORE = ['node_modules/**', 'dist/**', '*.log', '*.tmp', 'backup-manager.json', '.*'];
 class IgnoreService {
     ign;
     patterns = [];
@@ -95,6 +95,9 @@ class IgnoreService {
     }
     async getPatterns() {
         return [...this.patterns];
+    }
+    getGlobPatterns() {
+        return this.patterns.map(p => p.includes('/') ? p : `**/${p}`);
     }
     async updatePatterns(newPatterns) {
         this.patterns = newPatterns;

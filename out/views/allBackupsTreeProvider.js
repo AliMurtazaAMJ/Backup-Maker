@@ -82,16 +82,14 @@ class AllBackupsTreeProvider {
         });
     }
     async getFileTreeItems(backup) {
-        const { getFilesRecursive } = await Promise.resolve().then(() => __importStar(require('../utils/fileUtils')));
-        const files = await getFilesRecursive(backup.path);
+        const files = await this.metadataService.getFileList(backup.id);
         return this.buildTree(backup, files);
     }
     async getDirectoryContents(backupId, relativePath) {
         const backup = this.metadataService.getById(backupId);
         if (!backup)
             return [];
-        const { getFilesRecursive } = await Promise.resolve().then(() => __importStar(require('../utils/fileUtils')));
-        const allFiles = await getFilesRecursive(backup.path);
+        const allFiles = await this.metadataService.getFileList(backupId);
         const prefix = relativePath ? relativePath + '/' : '';
         const dirFiles = allFiles.filter((f) => f.startsWith(prefix));
         return this.buildTree(backup, dirFiles, relativePath);

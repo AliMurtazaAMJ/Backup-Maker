@@ -14,11 +14,14 @@ export declare class IgnoreTreeProvider implements vscode.TreeDataProvider<Ignor
     private treeRoots;
     private patterns;
     private workspaceRoot;
+    private initialized;
     constructor(ignoreService: IgnoreService);
+    private ensureInitialized;
     refresh(): Promise<void>;
+    private refreshInternal;
     private buildFileTree;
     getTreeItem(element: IgnoreTreeItem): vscode.TreeItem;
-    getChildren(element?: IgnoreTreeItem): IgnoreTreeItem[];
+    getChildren(element?: IgnoreTreeItem): Promise<IgnoreTreeItem[]>;
     private findNode;
     private findInTree;
     private toTreeItem;

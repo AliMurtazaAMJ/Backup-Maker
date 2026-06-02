@@ -21,14 +21,15 @@ import { registerRefresh } from './commands/refresh';
 import { registerOpenStorage } from './commands/openStorage';
 import { registerCompareFile } from './commands/compareFile';
 
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const ignoreService = new IgnoreService();
   const storageService = new StorageService(context);
   const metadataService = new MetadataService(storageService);
   const backupService = new BackupService(ignoreService, storageService, metadataService);
   const restoreService = new RestoreService();
 
-  storageService.initialize().then(() => metadataService.load());
+  await storageService.initialize();
+  await metadataService.load();
 
   // --- Backup Explorer (current project only) ---
 
@@ -73,6 +74,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const refreshTree = () => treeProvider.refresh();
 
   registerCreateBackup(context, backupService, () => {
+    metadataService.invalidateFileListCache();
     treeProvider.refresh();
     allBackupsProvider.refresh();
   });
@@ -82,7 +84,10 @@ export function activate(context: vscode.ExtensionContext): void {
   registerRestoreBackupTo(context, restoreService);
   registerRestoreFileTo(context, restoreService);
   registerRestoreFolderTo(context, restoreService);
-  registerDeleteBackup(context, metadataService, refreshTree);
+  registerDeleteBackup(context, metadataService, () => {
+    treeProvider.refresh();
+    allBackupsProvider.refresh();
+  });
   registerRefresh(context, refreshTree);
   registerOpenStorage(context, storageService);
   registerCompareFile(context);
@@ -93,14 +98,23 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // --- Auto-refresh via FileSystemWatcher ---
+  // --- Auto-refresh via FileSystemWatcher (debounced) ---
+
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  const debouncedRefresh = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      treeProvider.refresh();
+      allBackupsProvider.refresh();
+    }, 300);
+  };
 
   const backupWatcher = vscode.workspace.createFileSystemWatcher(
     new vscode.RelativePattern(storageService.storagePath, '**/*'),
   );
-  backupWatcher.onDidChange(() => { treeProvider.refresh(); allBackupsProvider.refresh(); });
-  backupWatcher.onDidCreate(() => { treeProvider.refresh(); allBackupsProvider.refresh(); });
-  backupWatcher.onDidDelete(() => { treeProvider.refresh(); allBackupsProvider.refresh(); });
+  backupWatcher.onDidChange(debouncedRefresh);
+  backupWatcher.onDidCreate(debouncedRefresh);
+  backupWatcher.onDidDelete(debouncedRefresh);
   context.subscriptions.push(backupWatcher);
 
   // --- Ignore Patterns Tree View ---
@@ -162,8 +176,6 @@ export function activate(context: vscode.ExtensionContext): void {
       ignoreTreeProvider.removeFromIgnore(item.filePath, item.isDir);
     }),
   );
-
-  ignoreTreeProvider.refresh();
 
   // --- Status Bar ---
 

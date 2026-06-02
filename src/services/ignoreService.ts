@@ -4,7 +4,7 @@ import * as fs from 'fs/promises';
 import ignore, { Ignore } from 'ignore';
 
 const CONFIG_FILENAME = 'backup-manager.json';
-const DEFAULT_IGNORE = ['node_modules/**', 'dist/**', '.git/**', '*.log', '*.tmp', '.env', '.vscode/**', 'backup-manager.json'];
+const DEFAULT_IGNORE = ['node_modules/**', 'dist/**', '*.log', '*.tmp', 'backup-manager.json', '.*'];
 
 export class IgnoreService {
   private ign: Ignore;
@@ -67,6 +67,10 @@ export class IgnoreService {
 
   async getPatterns(): Promise<string[]> {
     return [...this.patterns];
+  }
+
+  getGlobPatterns(): string[] {
+    return this.patterns.map(p => p.includes('/') ? p : `**/${p}`);
   }
 
   async updatePatterns(newPatterns: string[]): Promise<void> {

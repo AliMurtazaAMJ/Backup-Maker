@@ -57,13 +57,14 @@ const deleteBackup_1 = require("./commands/deleteBackup");
 const refresh_1 = require("./commands/refresh");
 const openStorage_1 = require("./commands/openStorage");
 const compareFile_1 = require("./commands/compareFile");
-function activate(context) {
+async function activate(context) {
     const ignoreService = new ignoreService_1.IgnoreService();
     const storageService = new storageService_1.StorageService(context);
     const metadataService = new metadataService_1.MetadataService(storageService);
     const backupService = new backupService_1.BackupService(ignoreService, storageService, metadataService);
     const restoreService = new restoreService_1.RestoreService();
-    storageService.initialize().then(() => metadataService.load());
+    await storageService.initialize();
+    await metadataService.load();
     // --- Backup Explorer (current project only) ---
     const treeProvider = new backupTreeProvider_1.BackupTreeProvider(metadataService);
     const treeView = vscode.window.createTreeView('backupManager.explorer', {
@@ -103,6 +104,7 @@ function activate(context) {
     // --- Commands (registered after all providers exist) ---
     const refreshTree = () => treeProvider.refresh();
     (0, createBackup_1.registerCreateBackup)(context, backupService, () => {
+        metadataService.invalidateFileListCache();
         treeProvider.refresh();
         allBackupsProvider.refresh();
     });
@@ -112,18 +114,30 @@ function activate(context) {
     (0, restoreBackupTo_1.registerRestoreBackupTo)(context, restoreService);
     (0, restoreFileTo_1.registerRestoreFileTo)(context, restoreService);
     (0, restoreFolderTo_1.registerRestoreFolderTo)(context, restoreService);
-    (0, deleteBackup_1.registerDeleteBackup)(context, metadataService, refreshTree);
+    (0, deleteBackup_1.registerDeleteBackup)(context, metadataService, () => {
+        treeProvider.refresh();
+        allBackupsProvider.refresh();
+    });
     (0, refresh_1.registerRefresh)(context, refreshTree);
     (0, openStorage_1.registerOpenStorage)(context, storageService);
     (0, compareFile_1.registerCompareFile)(context);
     context.subscriptions.push(vscode.commands.registerCommand('backupManager.refreshAllBackups', () => {
         allBackupsProvider.refresh();
     }));
-    // --- Auto-refresh via FileSystemWatcher ---
+    // --- Auto-refresh via FileSystemWatcher (debounced) ---
+    let debounceTimer;
+    const debouncedRefresh = () => {
+        if (debounceTimer)
+            clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            treeProvider.refresh();
+            allBackupsProvider.refresh();
+        }, 300);
+    };
     const backupWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(storageService.storagePath, '**/*'));
-    backupWatcher.onDidChange(() => { treeProvider.refresh(); allBackupsProvider.refresh(); });
-    backupWatcher.onDidCreate(() => { treeProvider.refresh(); allBackupsProvider.refresh(); });
-    backupWatcher.onDidDelete(() => { treeProvider.refresh(); allBackupsProvider.refresh(); });
+    backupWatcher.onDidChange(debouncedRefresh);
+    backupWatcher.onDidCreate(debouncedRefresh);
+    backupWatcher.onDidDelete(debouncedRefresh);
     context.subscriptions.push(backupWatcher);
     // --- Ignore Patterns Tree View ---
     const ignoreTreeProvider = new ignoreTreeProvider_1.IgnoreTreeProvider(ignoreService);
@@ -165,7 +179,6 @@ function activate(context) {
             return;
         ignoreTreeProvider.removeFromIgnore(item.filePath, item.isDir);
     }));
-    ignoreTreeProvider.refresh();
     // --- Status Bar ---
     const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     statusBarItem.command = 'backupManager.createBackup';

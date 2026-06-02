@@ -6,6 +6,7 @@ export declare class IgnoreService {
     load(workspaceRoot: string): Promise<void>;
     private ensureConfigFile;
     getPatterns(): Promise<string[]>;
+    getGlobPatterns(): string[];
     updatePatterns(newPatterns: string[]): Promise<void>;
     shouldIgnore(filePath: string): boolean;
     filterFiles(files: string[]): string[];

@@ -60,10 +60,21 @@ class IgnoreTreeProvider {
     treeRoots = [];
     patterns = [];
     workspaceRoot = '';
+    initialized = false;
     constructor(ignoreService) {
         this.ignoreService = ignoreService;
     }
+    async ensureInitialized() {
+        if (this.initialized)
+            return;
+        this.initialized = true;
+        await this.refreshInternal();
+    }
     async refresh() {
+        this.initialized = false;
+        await this.refreshInternal();
+    }
+    async refreshInternal() {
         const ws = vscode.workspace.workspaceFolders?.[0];
         if (!ws) {
             this.allFiles = [];
@@ -81,6 +92,7 @@ class IgnoreTreeProvider {
             absolute: false,
             suppressErrors: true,
             followSymbolicLinks: false,
+            ignore: ['**/.*'],
         });
         this.treeRoots = this.buildFileTree(this.allFiles);
         this._onDidChangeTreeData.fire();
@@ -135,8 +147,9 @@ class IgnoreTreeProvider {
         }
         return element;
     }
-    getChildren(element) {
+    async getChildren(element) {
         if (!element) {
+            await this.ensureInitialized();
             return this.treeRoots.map(n => this.toTreeItem(n));
         }
         const node = this.findNode(element.filePath);

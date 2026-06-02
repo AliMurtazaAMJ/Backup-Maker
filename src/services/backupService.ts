@@ -32,6 +32,8 @@ export class BackupService {
 
     const id = crypto.randomUUID();
 
+    const globIgnore = this.ignoreService.getGlobPatterns();
+
     const rawFiles = await fg('**/*', {
       cwd: workspaceRoot,
       dot: false,
@@ -39,6 +41,7 @@ export class BackupService {
       markDirectories: false,
       suppressErrors: true,
       followSymbolicLinks: false,
+      ignore: globIgnore,
     });
 
     const filteredFiles = this.ignoreService.filterFiles(rawFiles);
