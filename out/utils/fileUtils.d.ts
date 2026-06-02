@@ -1,0 +1,10 @@
+export declare function ensureDir(dirPath: string): Promise<void>;
+export declare function copyFile(src: string, dest: string): Promise<void>;
+export declare function copyDirectory(src: string, dest: string): Promise<void>;
+export declare function removeDirectory(dirPath: string): Promise<void>;
+export declare function getFileSize(filePath: string): Promise<number>;
+export declare function getDirectorySize(dirPath: string): Promise<number>;
+export declare function pathExists(filePath: string): Promise<boolean>;
+export declare function readJsonFile<T>(filePath: string): Promise<T | null>;
+export declare function writeJsonFile<T>(filePath: string, data: T): Promise<void>;
+export declare function getFilesRecursive(dirPath: string, basePath?: string): Promise<string[]>;

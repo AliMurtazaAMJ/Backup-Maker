@@ -1,0 +1,278 @@
+{
+  "name": "BackupMaker",
+  "displayName": "Backup Maker",
+  "description": "Create restore points for your workspace. Browse, restore files, folders, or entire backups.",
+  "version": "1.0.0",
+  "publisher": "AMJ-s",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "backup",
+    "restore",
+    "snapshot",
+    "restore-point"
+  ],
+  "icon": "resources/icon.png",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "backupManager.createBackup",
+        "title": "Create Backup",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "backupManager.restoreBackup",
+        "title": "Restore Backup"
+      },
+      {
+        "command": "backupManager.restoreFile",
+        "title": "Restore File"
+      },
+      {
+        "command": "backupManager.restoreFolder",
+        "title": "Restore Folder"
+      },
+      {
+        "command": "backupManager.deleteBackup",
+        "title": "Delete Backup"
+      },
+      {
+        "command": "backupManager.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "backupManager.openStorage",
+        "title": "Open Backup Storage"
+      },
+      {
+        "command": "backupManager.compareFile",
+        "title": "Compare with Current"
+      },
+      {
+        "command": "backupManager.refreshIgnore",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "backupManager.saveIgnorePatterns",
+        "title": "Save",
+        "icon": "$(check)"
+      },
+      {
+        "command": "backupManager.toggleIgnoreAll",
+        "title": "Toggle All"
+      },
+      {
+        "command": "backupManager.ignoreFile",
+        "title": "Ignore this file"
+      },
+      {
+        "command": "backupManager.ignoreFolder",
+        "title": "Ignore this folder"
+      },
+      {
+        "command": "backupManager.ignoreExtension",
+        "title": "Ignore by extension"
+      },
+      {
+        "command": "backupManager.removeFromIgnore",
+        "title": "Remove from ignore"
+      },
+      {
+        "command": "backupManager.refreshAllBackups",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "backupManager.restoreBackupTo",
+        "title": "Restore Backup to..."
+      },
+      {
+        "command": "backupManager.restoreFileTo",
+        "title": "Restore File to..."
+      },
+      {
+        "command": "backupManager.restoreFolderTo",
+        "title": "Restore Folder to..."
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "backupManager.refresh",
+          "when": "view == backupManager.explorer",
+          "group": "navigation"
+        },
+        {
+          "command": "backupManager.createBackup",
+          "when": "view == backupManager.explorer",
+          "group": "navigation@1"
+        },
+        {
+          "command": "backupManager.refreshAllBackups",
+          "when": "view == backupManager.allBackups",
+          "group": "navigation"
+        },
+        {
+          "command": "backupManager.refreshIgnore",
+          "when": "view == backupManager.ignoreExplorer",
+          "group": "navigation"
+        },
+        {
+          "command": "backupManager.saveIgnorePatterns",
+          "when": "view == backupManager.ignoreExplorer",
+          "group": "navigation@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "backupManager.restoreBackup",
+          "when": "view == backupManager.explorer && viewItem == backup",
+          "group": "1_restore"
+        },
+        {
+          "command": "backupManager.restoreFile",
+          "when": "view == backupManager.explorer && viewItem == file",
+          "group": "1_restore"
+        },
+        {
+          "command": "backupManager.compareFile",
+          "when": "view == backupManager.explorer && viewItem == file",
+          "group": "2_compare"
+        },
+        {
+          "command": "backupManager.restoreFolder",
+          "when": "view == backupManager.explorer && viewItem == directory",
+          "group": "1_restore"
+        },
+        {
+          "command": "backupManager.deleteBackup",
+          "when": "view == backupManager.explorer && viewItem == backup",
+          "group": "9_delete"
+        },
+        {
+          "command": "backupManager.restoreBackupTo",
+          "when": "view == backupManager.allBackups && viewItem == backup",
+          "group": "1_restore"
+        },
+        {
+          "command": "backupManager.restoreFileTo",
+          "when": "view == backupManager.allBackups && viewItem == file",
+          "group": "1_restore"
+        },
+        {
+          "command": "backupManager.restoreFolderTo",
+          "when": "view == backupManager.allBackups && viewItem == directory",
+          "group": "1_restore"
+        },
+        {
+          "command": "backupManager.compareFile",
+          "when": "view == backupManager.allBackups && viewItem == file",
+          "group": "2_compare"
+        },
+        {
+          "command": "backupManager.deleteBackup",
+          "when": "view == backupManager.allBackups && viewItem == backup",
+          "group": "9_delete"
+        },
+        {
+          "command": "backupManager.ignoreFile",
+          "when": "view == backupManager.ignoreExplorer && viewItem == ignoreFile",
+          "group": "1_ignore"
+        },
+        {
+          "command": "backupManager.ignoreFolder",
+          "when": "view == backupManager.ignoreExplorer && viewItem == ignoreDirectory",
+          "group": "1_ignore"
+        },
+        {
+          "command": "backupManager.ignoreExtension",
+          "when": "view == backupManager.ignoreExplorer && viewItem == ignoreFile",
+          "group": "2_ext"
+        },
+        {
+          "command": "backupManager.removeFromIgnore",
+          "when": "view == backupManager.ignoreExplorer && viewItem =~ /ignoreFile|ignoreDirectory/",
+          "group": "9_remove"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "backupManager",
+          "title": "Backup Manager",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "backupManager": [
+        {
+          "type": "tree",
+          "id": "backupManager.explorer",
+          "name": "Backup Explorer",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "type": "tree",
+          "id": "backupManager.allBackups",
+          "name": "All Backups",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "type": "tree",
+          "id": "backupManager.ignoreExplorer",
+          "name": "Ignore Patterns",
+          "when": "workspaceFolderCount > 0"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Backup Manager",
+      "properties": {
+        "backupManager.maxBackups": {
+          "type": "number",
+          "default": 50,
+          "minimum": 1,
+          "description": "Maximum number of backups to retain"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "test": "vitest run",
+    "lint": "tsc --noEmit",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "fast-glob": "^3.3.2",
+    "ignore": "^5.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.3.8",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.0",
+    "vsce": "^2.15.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/opencode/backup-manager"
+  }
+}
