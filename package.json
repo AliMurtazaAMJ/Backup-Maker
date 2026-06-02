@@ -127,11 +127,6 @@
           "command": "backupManager.refreshIgnore",
           "when": "view == backupManager.ignoreExplorer",
           "group": "navigation"
-        },
-        {
-          "command": "backupManager.saveIgnorePatterns",
-          "when": "view == backupManager.ignoreExplorer",
-          "group": "navigation@1"
         }
       ],
       "view/item/context": [

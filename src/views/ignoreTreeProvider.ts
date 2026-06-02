@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fsp from 'fs/promises';
 import fg from 'fast-glob';
 import { IgnoreService } from '../services/ignoreService';
 
@@ -25,32 +27,34 @@ export class IgnoreTreeProvider implements vscode.TreeDataProvider<IgnoreTreeIte
   private _onDidChangeTreeData = new vscode.EventEmitter<IgnoreTreeItem | undefined | void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  private allFiles: string[] = [];
-  private treeRoots: FileNode[] = [];
+  private rootNodes: FileNode[] = [];
   private patterns: string[] = [];
   private workspaceRoot: string = '';
   private initialized = false;
+  private loadedDirs = new Set<string>();
 
   constructor(private ignoreService: IgnoreService) {}
 
   private async ensureInitialized(): Promise<void> {
     if (this.initialized) return;
     this.initialized = true;
-    await this.refreshInternal();
+    await this.scanRoot();
+    this._onDidChangeTreeData.fire();
   }
 
   async refresh(): Promise<void> {
     this.initialized = false;
-    await this.refreshInternal();
+    this.loadedDirs.clear();
+    await this.scanRoot();
+    this._onDidChangeTreeData.fire();
   }
 
-  private async refreshInternal(): Promise<void> {
+  private async scanRoot(): Promise<void> {
     const ws = vscode.workspace.workspaceFolders?.[0];
     if (!ws) {
-      this.allFiles = [];
-      this.treeRoots = [];
+      this.rootNodes = [];
       this.workspaceRoot = '';
-      this._onDidChangeTreeData.fire();
+      this.patterns = [];
       return;
     }
 
@@ -58,20 +62,47 @@ export class IgnoreTreeProvider implements vscode.TreeDataProvider<IgnoreTreeIte
     await this.ignoreService.load(this.workspaceRoot);
     this.patterns = await this.ignoreService.getPatterns();
 
-    this.allFiles = await fg('**/*', {
-      cwd: this.workspaceRoot,
+    const entries = await fsp.readdir(this.workspaceRoot, { withFileTypes: true });
+    this.rootNodes = [];
+    for (const entry of entries) {
+      this.rootNodes.push({
+        name: entry.name,
+        path: entry.name,
+        isDirectory: entry.isDirectory(),
+        children: [],
+      });
+    }
+    this.sortNodes(this.rootNodes);
+  }
+
+  private async scanDirectory(node: FileNode): Promise<void> {
+    if (this.loadedDirs.has(node.path)) return;
+    this.loadedDirs.add(node.path);
+
+    const dirPath = path.join(this.workspaceRoot, node.path);
+
+    const files = await fg('**/*', {
+      cwd: dirPath,
       dot: false,
       absolute: false,
       suppressErrors: true,
       followSymbolicLinks: false,
-      ignore: ['**/.*'],
     });
 
-    this.treeRoots = this.buildFileTree(this.allFiles);
-    this._onDidChangeTreeData.fire();
+    const subTree = this.buildFlatTree(files);
+    const prefixPath = node.path;
+    const fixPaths = (nodes: FileNode[]) => {
+      for (const n of nodes) {
+        n.path = prefixPath + '/' + n.path;
+        fixPaths(n.children);
+      }
+    };
+    fixPaths(subTree);
+
+    node.children = subTree;
   }
 
-  private buildFileTree(files: string[]): FileNode[] {
+  private buildFlatTree(files: string[]): FileNode[] {
     const roots: FileNode[] = [];
     const map = new Map<string, FileNode>();
 
@@ -82,8 +113,7 @@ export class IgnoreTreeProvider implements vscode.TreeDataProvider<IgnoreTreeIte
         const part = parts[i];
         current = current ? current + '/' + part : part;
         if (!map.has(current)) {
-          const isDir = i < parts.length - 1 ||
-            files.some(f => f !== current && (f.startsWith(current + '/') || f === current));
+          const isDir = i < parts.length - 1 || files.some(f => f !== current && f.startsWith(current + '/'));
           const node: FileNode = { name: part, path: current, isDirectory: isDir, children: [] };
           map.set(current, node);
           if (i === 0) {
@@ -99,21 +129,20 @@ export class IgnoreTreeProvider implements vscode.TreeDataProvider<IgnoreTreeIte
       }
     }
 
+    this.sortNodes(roots);
+    return roots;
+  }
+
+  private sortNodes(nodes: FileNode[]): void {
     const sortFn = (a: FileNode, b: FileNode) => {
       if (a.isDirectory && !b.isDirectory) return -1;
       if (!a.isDirectory && b.isDirectory) return 1;
       return a.name.localeCompare(b.name);
     };
-
-    const sortTree = (nodes: FileNode[]) => {
-      nodes.sort(sortFn);
-      for (const n of nodes) {
-        sortTree(n.children);
-      }
-    };
-    sortTree(roots);
-
-    return roots;
+    nodes.sort(sortFn);
+    for (const n of nodes) {
+      this.sortNodes(n.children);
+    }
   }
 
   getTreeItem(element: IgnoreTreeItem): vscode.TreeItem {
@@ -127,15 +156,19 @@ export class IgnoreTreeProvider implements vscode.TreeDataProvider<IgnoreTreeIte
   async getChildren(element?: IgnoreTreeItem): Promise<IgnoreTreeItem[]> {
     if (!element) {
       await this.ensureInitialized();
-      return this.treeRoots.map(n => this.toTreeItem(n));
+      return this.rootNodes.map(n => this.toTreeItem(n));
     }
+
     const node = this.findNode(element.filePath);
-    if (!node) return [];
+    if (!node || !node.isDirectory) return [];
+
+    await this.scanDirectory(node);
+
     return node.children.map(n => this.toTreeItem(n));
   }
 
   private findNode(filePath: string): FileNode | undefined {
-    for (const root of this.treeRoots) {
+    for (const root of this.rootNodes) {
       const found = this.findInTree(root, filePath);
       if (found) return found;
     }
@@ -144,6 +177,7 @@ export class IgnoreTreeProvider implements vscode.TreeDataProvider<IgnoreTreeIte
 
   private findInTree(node: FileNode, filePath: string): FileNode | undefined {
     if (node.path === filePath) return node;
+    if (node.isDirectory && !this.loadedDirs.has(node.path)) return undefined;
     for (const child of node.children) {
       const found = this.findInTree(child, filePath);
       if (found) return found;
@@ -153,7 +187,7 @@ export class IgnoreTreeProvider implements vscode.TreeDataProvider<IgnoreTreeIte
 
   private toTreeItem(node: FileNode): IgnoreTreeItem {
     const collapsibleState = node.isDirectory
-      ? (node.children.length > 0 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None)
+      ? vscode.TreeItemCollapsibleState.Collapsed
       : vscode.TreeItemCollapsibleState.None;
 
     const item = new IgnoreTreeItem(
@@ -166,14 +200,16 @@ export class IgnoreTreeProvider implements vscode.TreeDataProvider<IgnoreTreeIte
     item.contextValue = node.isDirectory ? 'ignoreDirectory' : 'ignoreFile';
 
     if (node.isDirectory) {
-      const allIgnored = node.children.length > 0 &&
-        node.children.every(c => this.isIgnoredByPatterns(c.path));
-      const allIncluded = node.children.length > 0 &&
-        node.children.every(c => !this.isIgnoredByPatterns(c.path));
-      if (allIncluded) {
-        item.checkboxState = vscode.TreeItemCheckboxState.Checked;
+      const dirPattern = node.path + '/**';
+      if (node.children.length === 0) {
+        item.checkboxState = this.patterns.includes(dirPattern)
+          ? vscode.TreeItemCheckboxState.Unchecked
+          : vscode.TreeItemCheckboxState.Checked;
       } else {
-        item.checkboxState = vscode.TreeItemCheckboxState.Unchecked;
+        const allIncluded = node.children.every(c => !this.isIgnoredByPatterns(c.path));
+        item.checkboxState = allIncluded
+          ? vscode.TreeItemCheckboxState.Checked
+          : vscode.TreeItemCheckboxState.Unchecked;
       }
     } else {
       item.checkboxState = this.isIgnoredByPatterns(node.path)
@@ -196,7 +232,7 @@ export class IgnoreTreeProvider implements vscode.TreeDataProvider<IgnoreTreeIte
     return false;
   }
 
-  handleCheckboxChange(items: readonly [IgnoreTreeItem, vscode.TreeItemCheckboxState][]): void {
+  async handleCheckboxChange(items: readonly [IgnoreTreeItem, vscode.TreeItemCheckboxState][]): Promise<void> {
     const refreshed = new Set<string>();
     for (const [item, state] of items) {
       const include = state === vscode.TreeItemCheckboxState.Checked;
@@ -210,10 +246,7 @@ export class IgnoreTreeProvider implements vscode.TreeDataProvider<IgnoreTreeIte
         : undefined;
       if (parentPath && !refreshed.has(parentPath)) {
         refreshed.add(parentPath);
-        const parent = this.findNode(parentPath);
-        if (parent) {
-          this._onDidChangeTreeData.fire(this.toTreeItem(parent));
-        }
+        this._onDidChangeTreeData.fire(this.toTreeItem(this.findNode(parentPath)!));
       }
       if (!parentPath && !refreshed.has(item.filePath)) {
         refreshed.add(item.filePath);
@@ -223,6 +256,7 @@ export class IgnoreTreeProvider implements vscode.TreeDataProvider<IgnoreTreeIte
     if (refreshed.size === 0) {
       this._onDidChangeTreeData.fire();
     }
+    await this.autoSave();
   }
 
   private addToPatterns(filePath: string, isDir: boolean): void {
@@ -240,46 +274,41 @@ export class IgnoreTreeProvider implements vscode.TreeDataProvider<IgnoreTreeIte
 
   private removeFromPatterns(filePath: string, isDir: boolean): void {
     if (isDir) {
-      const pattern = filePath + '/**';
-      this.patterns = this.patterns.filter(p => p !== pattern);
-      const dirFiles = this.allFiles.filter(f => f.startsWith(filePath + '/') || f === filePath);
-      for (const f of dirFiles) {
-        this.patterns = this.patterns.filter(p => p !== f);
-        const ext = f.slice(f.lastIndexOf('.'));
-        if (ext) {
-          this.patterns = this.patterns.filter(p => p !== '*' + ext);
-        }
-      }
-    } else {
-      this.patterns = this.patterns.filter(p => p !== filePath);
-      const ext = filePath.slice(filePath.lastIndexOf('.'));
-      if (ext) {
-        this.patterns = this.patterns.filter(p => p !== '*' + ext);
-      }
+      this.patterns = this.patterns.filter(p => p !== filePath + '/**');
+    }
+    this.patterns = this.patterns.filter(p => p !== filePath);
+    const ext = filePath.slice(filePath.lastIndexOf('.'));
+    if (ext) {
+      this.patterns = this.patterns.filter(p => p !== '*' + ext);
     }
   }
 
-  toggleAll(): void {
-    const anyIncluded = this.allFiles.some(f => !this.isIgnoredByPatterns(f));
+  async toggleAll(): Promise<void> {
+    const anyIncluded = this.rootNodes.length > 0 && this.rootNodes.some(n => !this.isIgnoredByPatterns(n.path));
     if (anyIncluded) {
       this.patterns = ['**/*'];
     } else {
       this.patterns = [];
     }
+    this.loadedDirs.clear();
+    this.rootNodes.forEach(n => n.children = []);
     this._onDidChangeTreeData.fire();
+    await this.autoSave();
   }
 
-  ignoreFile(filePath: string): void {
+  async ignoreFile(filePath: string): Promise<void> {
     this.addToPatterns(filePath, false);
     this._onDidChangeTreeData.fire();
+    await this.autoSave();
   }
 
-  ignoreFolder(filePath: string): void {
+  async ignoreFolder(filePath: string): Promise<void> {
     this.addToPatterns(filePath, true);
     this._onDidChangeTreeData.fire();
+    await this.autoSave();
   }
 
-  ignoreExtension(filePath: string): void {
+  async ignoreExtension(filePath: string): Promise<void> {
     const ext = filePath.slice(filePath.lastIndexOf('.'));
     if (!ext) return;
     const pattern = '*' + ext;
@@ -287,18 +316,16 @@ export class IgnoreTreeProvider implements vscode.TreeDataProvider<IgnoreTreeIte
       this.patterns.push(pattern);
     }
     this._onDidChangeTreeData.fire();
+    await this.autoSave();
   }
 
-  removeFromIgnore(filePath: string, isDir: boolean): void {
+  async removeFromIgnore(filePath: string, isDir: boolean): Promise<void> {
     this.removeFromPatterns(filePath, isDir);
     this._onDidChangeTreeData.fire();
+    await this.autoSave();
   }
 
-  get hasChanges(): boolean {
-    return true;
-  }
-
-  async save(): Promise<void> {
+  private async autoSave(): Promise<void> {
     await this.ignoreService.updatePatterns(this.patterns);
   }
 }

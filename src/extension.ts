@@ -137,9 +137,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('backupManager.saveIgnorePatterns', async () => {
-      await ignoreTreeProvider.save();
-      vscode.window.showInformationMessage('Ignore patterns saved.');
+    vscode.commands.registerCommand('backupManager.saveIgnorePatterns', () => {
+      // patterns are auto-saved on every toggle
     }),
   );
 

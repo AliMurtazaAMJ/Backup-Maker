@@ -3,8 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import ignore, { Ignore } from 'ignore';
 
-const CONFIG_FILENAME = 'backup-manager.json';
-const DEFAULT_IGNORE = ['node_modules/**', 'dist/**', '*.log', '*.tmp', 'backup-manager.json', '.*'];
+const CONFIG_FILENAME = '.backupmanagerignore';
 
 export class IgnoreService {
   private ign: Ignore;
@@ -23,12 +22,12 @@ export class IgnoreService {
     await this.ensureConfigFile(workspaceRoot);
 
     try {
-      const configContent = await fs.readFile(this.configPath, 'utf-8');
-      const config = JSON.parse(configContent);
-      if (config.ignore && Array.isArray(config.ignore)) {
-        this.patterns = config.ignore;
-        this.ign.add(config.ignore);
-      }
+      const content = await fs.readFile(this.configPath, 'utf-8');
+      this.patterns = content
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('#'));
+      this.ign.add(this.patterns);
     } catch {
       // fallback
     }
@@ -54,15 +53,21 @@ export class IgnoreService {
         .map((l) => l.trim())
         .filter((l) => l && !l.startsWith('#'));
     } catch {
-      patterns = [...DEFAULT_IGNORE];
+      // no .gitignore — start empty
     }
 
-    if (patterns.length === 0) {
-      patterns = [...DEFAULT_IGNORE];
-    }
+    await this.writeFile(patterns);
+  }
 
-    const config = { ignore: patterns };
-    await fs.writeFile(this.configPath, JSON.stringify(config, null, 2), 'utf-8');
+  private async writeFile(patterns: string[]): Promise<void> {
+    const lines = [
+      '# Backup Manager ignore patterns',
+      '# One pattern per line (.gitignore syntax)',
+      '',
+      ...patterns,
+      '',
+    ];
+    await fs.writeFile(this.configPath, lines.join('\n'), 'utf-8');
   }
 
   async getPatterns(): Promise<string[]> {
@@ -79,14 +84,12 @@ export class IgnoreService {
     this.ign.add('.git');
     this.ign.add(newPatterns);
 
-    const config = { ignore: newPatterns };
-    await fs.writeFile(this.configPath, JSON.stringify(config, null, 2), 'utf-8');
+    await this.writeFile(newPatterns);
   }
 
   shouldIgnore(filePath: string): boolean {
-    if (!filePath || filePath.startsWith('.')) {
-      return true;
-    }
+    if (filePath === '.backupmanagerignore') return true;
+    if (!filePath) return true;
     return this.ign.ignores(filePath);
   }
 

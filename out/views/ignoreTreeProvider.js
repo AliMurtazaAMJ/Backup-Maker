@@ -38,6 +38,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.IgnoreTreeProvider = exports.IgnoreTreeItem = void 0;
 const vscode = __importStar(require("vscode"));
+const path = __importStar(require("path"));
+const fsp = __importStar(require("fs/promises"));
 const fast_glob_1 = __importDefault(require("fast-glob"));
 class IgnoreTreeItem extends vscode.TreeItem {
     label;
@@ -56,11 +58,11 @@ class IgnoreTreeProvider {
     ignoreService;
     _onDidChangeTreeData = new vscode.EventEmitter();
     onDidChangeTreeData = this._onDidChangeTreeData.event;
-    allFiles = [];
-    treeRoots = [];
+    rootNodes = [];
     patterns = [];
     workspaceRoot = '';
     initialized = false;
+    loadedDirs = new Set();
     constructor(ignoreService) {
         this.ignoreService = ignoreService;
     }
@@ -68,36 +70,62 @@ class IgnoreTreeProvider {
         if (this.initialized)
             return;
         this.initialized = true;
-        await this.refreshInternal();
+        await this.scanRoot();
+        this._onDidChangeTreeData.fire();
     }
     async refresh() {
         this.initialized = false;
-        await this.refreshInternal();
+        this.loadedDirs.clear();
+        await this.scanRoot();
+        this._onDidChangeTreeData.fire();
     }
-    async refreshInternal() {
+    async scanRoot() {
         const ws = vscode.workspace.workspaceFolders?.[0];
         if (!ws) {
-            this.allFiles = [];
-            this.treeRoots = [];
+            this.rootNodes = [];
             this.workspaceRoot = '';
-            this._onDidChangeTreeData.fire();
+            this.patterns = [];
             return;
         }
         this.workspaceRoot = ws.uri.fsPath;
         await this.ignoreService.load(this.workspaceRoot);
         this.patterns = await this.ignoreService.getPatterns();
-        this.allFiles = await (0, fast_glob_1.default)('**/*', {
-            cwd: this.workspaceRoot,
+        const entries = await fsp.readdir(this.workspaceRoot, { withFileTypes: true });
+        this.rootNodes = [];
+        for (const entry of entries) {
+            this.rootNodes.push({
+                name: entry.name,
+                path: entry.name,
+                isDirectory: entry.isDirectory(),
+                children: [],
+            });
+        }
+        this.sortNodes(this.rootNodes);
+    }
+    async scanDirectory(node) {
+        if (this.loadedDirs.has(node.path))
+            return;
+        this.loadedDirs.add(node.path);
+        const dirPath = path.join(this.workspaceRoot, node.path);
+        const files = await (0, fast_glob_1.default)('**/*', {
+            cwd: dirPath,
             dot: false,
             absolute: false,
             suppressErrors: true,
             followSymbolicLinks: false,
-            ignore: ['**/.*'],
         });
-        this.treeRoots = this.buildFileTree(this.allFiles);
-        this._onDidChangeTreeData.fire();
+        const subTree = this.buildFlatTree(files);
+        const prefixPath = node.path;
+        const fixPaths = (nodes) => {
+            for (const n of nodes) {
+                n.path = prefixPath + '/' + n.path;
+                fixPaths(n.children);
+            }
+        };
+        fixPaths(subTree);
+        node.children = subTree;
     }
-    buildFileTree(files) {
+    buildFlatTree(files) {
         const roots = [];
         const map = new Map();
         for (const file of files) {
@@ -107,8 +135,7 @@ class IgnoreTreeProvider {
                 const part = parts[i];
                 current = current ? current + '/' + part : part;
                 if (!map.has(current)) {
-                    const isDir = i < parts.length - 1 ||
-                        files.some(f => f !== current && (f.startsWith(current + '/') || f === current));
+                    const isDir = i < parts.length - 1 || files.some(f => f !== current && f.startsWith(current + '/'));
                     const node = { name: part, path: current, isDirectory: isDir, children: [] };
                     map.set(current, node);
                     if (i === 0) {
@@ -124,6 +151,10 @@ class IgnoreTreeProvider {
                 }
             }
         }
+        this.sortNodes(roots);
+        return roots;
+    }
+    sortNodes(nodes) {
         const sortFn = (a, b) => {
             if (a.isDirectory && !b.isDirectory)
                 return -1;
@@ -131,14 +162,10 @@ class IgnoreTreeProvider {
                 return 1;
             return a.name.localeCompare(b.name);
         };
-        const sortTree = (nodes) => {
-            nodes.sort(sortFn);
-            for (const n of nodes) {
-                sortTree(n.children);
-            }
-        };
-        sortTree(roots);
-        return roots;
+        nodes.sort(sortFn);
+        for (const n of nodes) {
+            this.sortNodes(n.children);
+        }
     }
     getTreeItem(element) {
         const node = this.findNode(element.filePath);
@@ -150,15 +177,16 @@ class IgnoreTreeProvider {
     async getChildren(element) {
         if (!element) {
             await this.ensureInitialized();
-            return this.treeRoots.map(n => this.toTreeItem(n));
+            return this.rootNodes.map(n => this.toTreeItem(n));
         }
         const node = this.findNode(element.filePath);
-        if (!node)
+        if (!node || !node.isDirectory)
             return [];
+        await this.scanDirectory(node);
         return node.children.map(n => this.toTreeItem(n));
     }
     findNode(filePath) {
-        for (const root of this.treeRoots) {
+        for (const root of this.rootNodes) {
             const found = this.findInTree(root, filePath);
             if (found)
                 return found;
@@ -168,6 +196,8 @@ class IgnoreTreeProvider {
     findInTree(node, filePath) {
         if (node.path === filePath)
             return node;
+        if (node.isDirectory && !this.loadedDirs.has(node.path))
+            return undefined;
         for (const child of node.children) {
             const found = this.findInTree(child, filePath);
             if (found)
@@ -177,20 +207,22 @@ class IgnoreTreeProvider {
     }
     toTreeItem(node) {
         const collapsibleState = node.isDirectory
-            ? (node.children.length > 0 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None)
+            ? vscode.TreeItemCollapsibleState.Collapsed
             : vscode.TreeItemCollapsibleState.None;
         const item = new IgnoreTreeItem(node.name, collapsibleState, node.path, node.isDirectory);
         item.contextValue = node.isDirectory ? 'ignoreDirectory' : 'ignoreFile';
         if (node.isDirectory) {
-            const allIgnored = node.children.length > 0 &&
-                node.children.every(c => this.isIgnoredByPatterns(c.path));
-            const allIncluded = node.children.length > 0 &&
-                node.children.every(c => !this.isIgnoredByPatterns(c.path));
-            if (allIncluded) {
-                item.checkboxState = vscode.TreeItemCheckboxState.Checked;
+            const dirPattern = node.path + '/**';
+            if (node.children.length === 0) {
+                item.checkboxState = this.patterns.includes(dirPattern)
+                    ? vscode.TreeItemCheckboxState.Unchecked
+                    : vscode.TreeItemCheckboxState.Checked;
             }
             else {
-                item.checkboxState = vscode.TreeItemCheckboxState.Unchecked;
+                const allIncluded = node.children.every(c => !this.isIgnoredByPatterns(c.path));
+                item.checkboxState = allIncluded
+                    ? vscode.TreeItemCheckboxState.Checked
+                    : vscode.TreeItemCheckboxState.Unchecked;
             }
         }
         else {
@@ -216,7 +248,7 @@ class IgnoreTreeProvider {
         }
         return false;
     }
-    handleCheckboxChange(items) {
+    async handleCheckboxChange(items) {
         const refreshed = new Set();
         for (const [item, state] of items) {
             const include = state === vscode.TreeItemCheckboxState.Checked;
@@ -231,10 +263,7 @@ class IgnoreTreeProvider {
                 : undefined;
             if (parentPath && !refreshed.has(parentPath)) {
                 refreshed.add(parentPath);
-                const parent = this.findNode(parentPath);
-                if (parent) {
-                    this._onDidChangeTreeData.fire(this.toTreeItem(parent));
-                }
+                this._onDidChangeTreeData.fire(this.toTreeItem(this.findNode(parentPath)));
             }
             if (!parentPath && !refreshed.has(item.filePath)) {
                 refreshed.add(item.filePath);
@@ -244,6 +273,7 @@ class IgnoreTreeProvider {
         if (refreshed.size === 0) {
             this._onDidChangeTreeData.fire();
         }
+        await this.autoSave();
     }
     addToPatterns(filePath, isDir) {
         if (isDir) {
@@ -260,44 +290,38 @@ class IgnoreTreeProvider {
     }
     removeFromPatterns(filePath, isDir) {
         if (isDir) {
-            const pattern = filePath + '/**';
-            this.patterns = this.patterns.filter(p => p !== pattern);
-            const dirFiles = this.allFiles.filter(f => f.startsWith(filePath + '/') || f === filePath);
-            for (const f of dirFiles) {
-                this.patterns = this.patterns.filter(p => p !== f);
-                const ext = f.slice(f.lastIndexOf('.'));
-                if (ext) {
-                    this.patterns = this.patterns.filter(p => p !== '*' + ext);
-                }
-            }
+            this.patterns = this.patterns.filter(p => p !== filePath + '/**');
         }
-        else {
-            this.patterns = this.patterns.filter(p => p !== filePath);
-            const ext = filePath.slice(filePath.lastIndexOf('.'));
-            if (ext) {
-                this.patterns = this.patterns.filter(p => p !== '*' + ext);
-            }
+        this.patterns = this.patterns.filter(p => p !== filePath);
+        const ext = filePath.slice(filePath.lastIndexOf('.'));
+        if (ext) {
+            this.patterns = this.patterns.filter(p => p !== '*' + ext);
         }
     }
-    toggleAll() {
-        const anyIncluded = this.allFiles.some(f => !this.isIgnoredByPatterns(f));
+    async toggleAll() {
+        const anyIncluded = this.rootNodes.length > 0 && this.rootNodes.some(n => !this.isIgnoredByPatterns(n.path));
         if (anyIncluded) {
             this.patterns = ['**/*'];
         }
         else {
             this.patterns = [];
         }
+        this.loadedDirs.clear();
+        this.rootNodes.forEach(n => n.children = []);
         this._onDidChangeTreeData.fire();
+        await this.autoSave();
     }
-    ignoreFile(filePath) {
+    async ignoreFile(filePath) {
         this.addToPatterns(filePath, false);
         this._onDidChangeTreeData.fire();
+        await this.autoSave();
     }
-    ignoreFolder(filePath) {
+    async ignoreFolder(filePath) {
         this.addToPatterns(filePath, true);
         this._onDidChangeTreeData.fire();
+        await this.autoSave();
     }
-    ignoreExtension(filePath) {
+    async ignoreExtension(filePath) {
         const ext = filePath.slice(filePath.lastIndexOf('.'));
         if (!ext)
             return;
@@ -306,15 +330,14 @@ class IgnoreTreeProvider {
             this.patterns.push(pattern);
         }
         this._onDidChangeTreeData.fire();
+        await this.autoSave();
     }
-    removeFromIgnore(filePath, isDir) {
+    async removeFromIgnore(filePath, isDir) {
         this.removeFromPatterns(filePath, isDir);
         this._onDidChangeTreeData.fire();
+        await this.autoSave();
     }
-    get hasChanges() {
-        return true;
-    }
-    async save() {
+    async autoSave() {
         await this.ignoreService.updatePatterns(this.patterns);
     }
 }

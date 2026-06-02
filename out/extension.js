@@ -152,9 +152,8 @@ async function activate(context) {
     context.subscriptions.push(vscode.commands.registerCommand('backupManager.refreshIgnore', () => {
         ignoreTreeProvider.refresh();
     }));
-    context.subscriptions.push(vscode.commands.registerCommand('backupManager.saveIgnorePatterns', async () => {
-        await ignoreTreeProvider.save();
-        vscode.window.showInformationMessage('Ignore patterns saved.');
+    context.subscriptions.push(vscode.commands.registerCommand('backupManager.saveIgnorePatterns', () => {
+        // patterns are auto-saved on every toggle
     }));
     context.subscriptions.push(vscode.commands.registerCommand('backupManager.toggleIgnoreAll', () => {
         ignoreTreeProvider.toggleAll();

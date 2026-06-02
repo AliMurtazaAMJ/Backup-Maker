@@ -40,8 +40,7 @@ exports.IgnoreService = void 0;
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs/promises"));
 const ignore_1 = __importDefault(require("ignore"));
-const CONFIG_FILENAME = 'backup-manager.json';
-const DEFAULT_IGNORE = ['node_modules/**', 'dist/**', '*.log', '*.tmp', 'backup-manager.json', '.*'];
+const CONFIG_FILENAME = '.backupmanagerignore';
 class IgnoreService {
     ign;
     patterns = [];
@@ -55,12 +54,12 @@ class IgnoreService {
         this.patterns = [];
         await this.ensureConfigFile(workspaceRoot);
         try {
-            const configContent = await fs.readFile(this.configPath, 'utf-8');
-            const config = JSON.parse(configContent);
-            if (config.ignore && Array.isArray(config.ignore)) {
-                this.patterns = config.ignore;
-                this.ign.add(config.ignore);
-            }
+            const content = await fs.readFile(this.configPath, 'utf-8');
+            this.patterns = content
+                .split('\n')
+                .map((l) => l.trim())
+                .filter((l) => l && !l.startsWith('#'));
+            this.ign.add(this.patterns);
         }
         catch {
             // fallback
@@ -85,13 +84,19 @@ class IgnoreService {
                 .filter((l) => l && !l.startsWith('#'));
         }
         catch {
-            patterns = [...DEFAULT_IGNORE];
+            // no .gitignore — start empty
         }
-        if (patterns.length === 0) {
-            patterns = [...DEFAULT_IGNORE];
-        }
-        const config = { ignore: patterns };
-        await fs.writeFile(this.configPath, JSON.stringify(config, null, 2), 'utf-8');
+        await this.writeFile(patterns);
+    }
+    async writeFile(patterns) {
+        const lines = [
+            '# Backup Manager ignore patterns',
+            '# One pattern per line (.gitignore syntax)',
+            '',
+            ...patterns,
+            '',
+        ];
+        await fs.writeFile(this.configPath, lines.join('\n'), 'utf-8');
     }
     async getPatterns() {
         return [...this.patterns];
@@ -104,13 +109,13 @@ class IgnoreService {
         this.ign = (0, ignore_1.default)();
         this.ign.add('.git');
         this.ign.add(newPatterns);
-        const config = { ignore: newPatterns };
-        await fs.writeFile(this.configPath, JSON.stringify(config, null, 2), 'utf-8');
+        await this.writeFile(newPatterns);
     }
     shouldIgnore(filePath) {
-        if (!filePath || filePath.startsWith('.')) {
+        if (filePath === '.backupmanagerignore')
             return true;
-        }
+        if (!filePath)
+            return true;
         return this.ign.ignores(filePath);
     }
     filterFiles(files) {

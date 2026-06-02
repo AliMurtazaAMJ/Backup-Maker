@@ -5,6 +5,7 @@ export declare class IgnoreService {
     constructor();
     load(workspaceRoot: string): Promise<void>;
     private ensureConfigFile;
+    private writeFile;
     getPatterns(): Promise<string[]>;
     getGlobPatterns(): string[];
     updatePatterns(newPatterns: string[]): Promise<void>;
